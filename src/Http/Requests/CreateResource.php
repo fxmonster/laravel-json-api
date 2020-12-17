@@ -62,6 +62,8 @@ class CreateResource extends ValidatedRequest
         /** If there is a decoded JSON API document, check it complies with the spec. */
         if ($document) {
             $this->validateDocumentCompliance($document, $validators);
+            /** Validate included resources by spec v1.1 */
+            $this->validateDocumentIncluded($document);
         }
 
         /** Check the document is logically correct. */
@@ -87,4 +89,42 @@ class CreateResource extends ValidatedRequest
         );
     }
 
+    /**
+     * Validate document included resources
+     *
+     * @param $document
+     */
+    protected function validateDocumentIncluded($document): void
+    {
+        if (property_exists($document, 'included')) {
+            foreach ($document->included as $item) {
+                $includedValidators = $this->getValidators($item->type);
+                if ($includedValidators) {
+                    $this->passes($includedValidators->create($this->getIncludedDocument($item)));
+                }
+            }
+        }
+    }
+
+    /**
+     * Transform object to array
+     *
+     * @param object $item
+     * @return array
+     */
+    protected function getIncludedDocument(object $item): array
+    {
+        try {
+            return [
+                'data' => json_decode(
+                    json_encode($item, JSON_THROW_ON_ERROR),
+                    true,
+                    512,
+                    JSON_THROW_ON_ERROR
+                )
+            ];
+        } catch (\JsonException $e) {
+            return [];
+        }
+    }
 }

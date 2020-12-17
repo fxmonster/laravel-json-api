@@ -287,11 +287,13 @@ abstract class ValidatedRequest implements ValidatesWhenResolved
     /**
      * Get the resource validators.
      *
+     * @param string|null $type - resource type for included
      * @return ValidatorFactoryInterface|null
      */
-    protected function getValidators()
+    protected function getValidators(string $type = null)
     {
-        return $this->container->getValidatorsByResourceType($this->getResourceType());
+        $type = $type ?: $this->getResourceType();
+        return $this->container->getValidatorsByResourceType($type);
     }
 
     /**

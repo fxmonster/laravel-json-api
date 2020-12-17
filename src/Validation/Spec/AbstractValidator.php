@@ -166,6 +166,29 @@ abstract class AbstractValidator implements DocumentValidatorInterface
     }
 
     /**
+     * Validate the value of an lid member.
+     * (for spec 1.1)
+     *
+     * @param mixed $value
+     * @param string $path
+     * @return bool
+     */
+    protected function validateLidMember($value, string $path): bool
+    {
+        if (!is_string($value)) {
+            $this->memberNotString($path, 'lid');
+            return false;
+        }
+
+        if (empty($value)) {
+            $this->memberEmpty($path, 'lid');
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Validate an identifier object.
      *
      * @param mixed $value
@@ -194,7 +217,16 @@ abstract class AbstractValidator implements DocumentValidatorInterface
             $valid = false;
         }
 
-        if (!property_exists($value, 'id')) {
+        /** Check relation lid is present:  */
+        if (property_exists($value, 'lid')) {
+            /** relation id is not allowed if lid is present: */
+            if (property_exists($value, 'id') ||
+                /**  validate relation lid: */
+                !$this->validateLidMember($value->lid, $dataPath)) {
+                $valid = false;
+            }
+        /**  validate relation id if lid is not present: */
+        } else if (!property_exists($value, 'id')) {
             $this->memberRequired($dataPath, 'id');
             $valid = false;
         } else if (!$this->validateIdMember($value->id, $dataPath)) {
@@ -212,14 +244,17 @@ abstract class AbstractValidator implements DocumentValidatorInterface
 
     /**
      * Validate a resource relationship.
+     * (with spec 1.1)
      *
      * @param mixed $relation
      * @param string|null $field
+     * @param string $basePath
+     *          path to resource relationships in document
      * @return bool
      */
-    protected function validateRelationship($relation, ?string $field = null): bool
+    protected function validateRelationship($relation, ?string $field = null, string $basePath = '/data/relationships'): bool
     {
-        $path = $field ? '/data/relationships' : '/';
+        $path = $field ? $basePath : '/';
         $member = $field ?: 'data';
 
         if (!is_object($relation)) {
@@ -237,35 +272,38 @@ abstract class AbstractValidator implements DocumentValidatorInterface
         $data = $relation->data;
 
         if (is_array($data)) {
-            return $this->validateToMany($data, $field);
+            return $this->validateToMany($data, $field, $basePath);
         }
 
-        return $this->validateToOne($data, $field);
+        return $this->validateToOne($data, $field, $basePath);
     }
 
 
     /**
      * Validate a to-one relation.
+     * (with spec v1.1)
      *
      * @param mixed $value
      * @param string|null $field
      *      the relationship field name.
+     * @param string $basePath
+     *      the base path to relationships for included
      * @return bool
      */
-    protected function validateToOne($value, ?string $field = null): bool
+    protected function validateToOne($value, ?string $field = null, string $basePath = "/data/relationships"): bool
     {
         if (is_null($value)) {
             return true;
         }
 
-        $dataPath = $field ? "/data/relationships/{$field}" : "/";
-        $identifierPath = $field ? "/data/relationships/{$field}" : "/data";
+        $dataPath = $field ? "${basePath}/{$field}" : "/";
+        $identifierPath = $field ? "${basePath}/{$field}" : "/data";
 
         if (!$this->validateIdentifier($value, $dataPath)) {
             return false;
         }
 
-        if (!$this->store->exists($value->type, $value->id)) {
+        if (!$this->exists($value)) {
             $this->resourceDoesNotExist($identifierPath);
             return false;
         }
@@ -275,15 +313,18 @@ abstract class AbstractValidator implements DocumentValidatorInterface
 
     /**
      * Validate a to-many relation.
+     * (with spec 1.1)
      *
      * @param array $value
      * @param string|null $field
      *      the relationship field name.
+     * @param string $basePath
+     *      the base path to relationships for included
      * @return bool
      */
-    protected function validateToMany(array $value, ?string $field = null): bool
+    protected function validateToMany(array $value, ?string $field = null, string $basePath = "/data/relationships"): bool
     {
-        $path = $field ? "/data/relationships/{$field}/data" : "/data";
+        $path = $field ? "${basePath}/{$field}/data" : "/data";
         $valid = true;
 
         foreach ($value as $index => $item) {
@@ -292,13 +333,54 @@ abstract class AbstractValidator implements DocumentValidatorInterface
                 continue;
             }
 
-            if ($this->isNotFound($item->type, $item->id)) {
+            if (!$this->exists($item)) {
                 $this->resourceDoesNotExist("{$path}/{$index}");
                 $valid = false;
             }
         }
 
         return $valid;
+    }
+
+    /**
+     * Check resource exists in db or in included by lid
+     * (with spec 1.1)
+     *
+     * @param $value
+     * @return bool
+     */
+    protected function exists($value): bool
+    {
+        if (!property_exists($value, 'lid')) {
+            return $this->store->exists($value->type, $value->id);
+        }
+
+        return $this->existsIncluded($value);
+    }
+
+    /**
+     * Check relation resource exists in included
+     * (for spec 1.1)
+     *
+     * @param $value
+     * @return bool
+     */
+    protected function existsIncluded($value): bool
+    {
+        /** Check included property is present */
+        if (!property_exists($this->document, 'included')) {
+            return false;
+        }
+
+        /** Search resource in included */
+        foreach ($this->document->included as $item) {
+            if ($item->type === $value->type &&
+                $item->lid === $value->lid) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -505,4 +587,12 @@ abstract class AbstractValidator implements DocumentValidatorInterface
         }
     }
 
+    /**
+     * @param string $path
+     * @param string|null $detail
+     */
+    protected function invalidResource(string $path, string $detail = null): void
+    {
+        $this->errors->add($this->translator->invalidResource($path, $detail));
+    }
 }
