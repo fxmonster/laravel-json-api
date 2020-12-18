@@ -25,6 +25,7 @@ use CloudCreativity\LaravelJsonApi\Contracts\Queue\AsynchronousProcess;
 use CloudCreativity\LaravelJsonApi\Contracts\Store\StoreAwareInterface;
 use CloudCreativity\LaravelJsonApi\Document\ResourceObject;
 use CloudCreativity\LaravelJsonApi\Exceptions\RuntimeException;
+use CloudCreativity\LaravelJsonApi\Http\Requests\CreateIncluded;
 use CloudCreativity\LaravelJsonApi\Store\StoreAwareTrait;
 use CloudCreativity\LaravelJsonApi\Utils\InvokesHooks;
 use CloudCreativity\LaravelJsonApi\Utils\Str;
@@ -43,7 +44,8 @@ abstract class AbstractResourceAdapter implements ResourceAdapterInterface, Stor
         InvokesHooks,
         ChecksMediaTypes,
         Concerns\GuardsFields,
-        Concerns\FindsManyResources;
+        Concerns\FindsManyResources,
+        CreateIncluded;
 
     /**
      * Create a new record.
@@ -91,6 +93,8 @@ abstract class AbstractResourceAdapter implements ResourceAdapterInterface, Stor
         $record = $this->createRecord(
             $resource = $this->deserialize($document)
         );
+
+        $resource = $this->createIncluded($document, $resource, $parameters, $record);
 
         return $this->fillAndPersist($record, $resource, $parameters, false);
     }

@@ -65,11 +65,10 @@ class FetchProcesses extends ValidatedRequest
     /**
      * @inheritdoc
      */
-    protected function getValidators()
+    protected function getValidators(string $type = null)
     {
-        return $this->container->getValidatorsByResourceType(
-            $this->getProcessType()
-        );
+        $type = $type ?: $this->getProcessType();
+        return $this->container->getValidatorsByResourceType($type);
     }
 
 }

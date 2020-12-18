@@ -106,6 +106,7 @@ class CreateResourceValidator extends AbstractValidator
 
     /**
      * Validate the resource object.
+     * (with spec 1.1)
      *
      * @return bool
      */
@@ -114,12 +115,14 @@ class CreateResourceValidator extends AbstractValidator
         $identifier = $this->validateTypeAndId();
         $attributes = $this->validateAttributes();
         $relationships = $this->validateRelationships();
+        /** validate all included resources if present: */
+        $included = $this->validateIncluded();
 
         if ($attributes && $relationships) {
-            return $this->validateAllFields() && $identifier;
+            return $this->validateAllFields() && $identifier && $included;
         }
 
-        return $identifier && $attributes && $relationships;
+        return $identifier && $attributes && $relationships && $included;
     }
 
     /**
@@ -193,19 +196,26 @@ class CreateResourceValidator extends AbstractValidator
 
     /**
      * Validate the resource attributes.
+     * (with spec 1.1)
      *
+     * @param null $attrs
+     * @param string $path
+     *          path to resource attributes in document
      * @return bool
      */
-    protected function validateAttributes(): bool
+    protected function validateAttributes($attrs = null, string $path = '/data'): bool
     {
-        if (!$this->dataHas('attributes')) {
-            return true;
+        // get and check attributes if not present:
+        if ($attrs === null) {
+            $key = $this->keyFromPath($path);
+            $attrs = data_get($this->document, "$key.attributes");
+            if ($attrs === null) {
+                return true;
+            }
         }
 
-        $attrs = $this->dataGet('attributes');
-
         if (!is_object($attrs)) {
-            $this->memberNotObject('/data', 'attributes');
+            $this->memberNotObject($path, 'attributes');
             return false;
         }
 
@@ -213,26 +223,98 @@ class CreateResourceValidator extends AbstractValidator
             return property_exists($attrs, $field);
         });
 
-        $this->memberFieldsNotAllowed('/data', 'attributes', $disallowed);
+        $this->memberFieldsNotAllowed($path, 'attributes', $disallowed);
 
         return $disallowed->isEmpty();
     }
 
     /**
-     * Validate the resource relationships.
+     * Validate included resources
+     * (for spec 1.1)
      *
      * @return bool
      */
-    protected function validateRelationships(): bool
+    protected function validateIncluded(): bool
     {
-        if (!$this->dataHas('relationships')) {
+        /** Check included member */
+        if (!property_exists($this->document, 'included')) {
+            return true;
+        }
+        if (empty($this->document->included)) {
+            $this->invalidResource('/included', 'Empty included not allowed!');
+            return false;
+        }
+        if (!is_array($this->document->included)) {
+            $this->invalidResource('/included', 'Included must be an array!');
+            return false;
+        }
+
+        $valid = true;
+        /** Validate all included resources */
+        foreach ($this->document->included as $index => $item) {
+            $required = $this->validateRequiredMembers($item, "/included/$index");
+            $relationships = $this->validateRelationships("/included/$index");
+            if (!$required || !$relationships) {
+                $valid = false;
+            }
+        }
+
+        return $valid;
+    }
+
+    /**
+     * Validate the included resource required members
+     * (for spec 1.1)
+     *
+     * @param object $item
+     * @param string $path
+     * @return bool
+     */
+    protected function validateRequiredMembers(object $item, string $path): bool
+    {
+        $valid = true;
+
+        /** Required members and validate methods map: */
+        $validate = [
+            'type' => 'validateTypeMember',
+            'lid' => 'validateLidMember',
+            'attributes' => 'validateAttributes'
+        ];
+
+        foreach ($validate as $field => $method) {
+            /** Check required member exists: */
+            if (!property_exists($item, $field)) {
+                $this->memberRequired($path, $field);
+                $valid = false;
+                continue;
+            }
+            /** Validate required member value: */
+            $value = data_get($item, $field);
+            if (!$this->$method($value, $path)) {
+                $valid = false;
+            }
+        }
+
+        return $valid;
+    }
+
+    /**
+     * Validate the resource relationships.
+     *
+     * @param string $path - path to relationships member in document
+     * @return bool
+     */
+    protected function validateRelationships(string $path = '/data'): bool
+    {
+        // get relationships from document:
+        $key = $this->keyFromPath($path);
+        $relationships = data_get($this->document, "$key.relationships");
+        if ($relationships === null) {
             return true;
         }
 
-        $relationships = $this->dataGet('relationships');
-
         if (!is_object($relationships)) {
-            $this->memberNotObject('/data', 'relationships');
+            $this->memberNotObject($path, 'relationships');
             return false;
         }
 
@@ -241,10 +323,10 @@ class CreateResourceValidator extends AbstractValidator
         });
 
         $valid = $disallowed->isEmpty();
-        $this->memberFieldsNotAllowed('/data', 'relationships', $disallowed);
+        $this->memberFieldsNotAllowed($path, 'relationships', $disallowed);
 
         foreach ($relationships as $field => $relation) {
-            if (!$this->validateRelationship($relation, $field)) {
+            if (!$this->validateRelationship($relation, $field, $path)) {
                 $valid = false;
             }
         }
@@ -280,4 +362,14 @@ class CreateResourceValidator extends AbstractValidator
         return $this->clientIds;
     }
 
+    /**
+     * Transform member path in document key
+     *
+     * @param string $path
+     * @return string
+     */
+    protected function keyFromPath(string $path): string
+    {
+        return str_replace('/', '.', trim($path, '/'));
+    }
 }
