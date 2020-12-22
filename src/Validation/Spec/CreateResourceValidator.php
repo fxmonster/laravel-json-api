@@ -325,9 +325,47 @@ class CreateResourceValidator extends AbstractValidator
         $valid = $disallowed->isEmpty();
         $this->memberFieldsNotAllowed($path, 'relationships', $disallowed);
 
+        $lids = [];
         foreach ($relationships as $field => $relation) {
             if (!$this->validateRelationship($relation, $field, $path)) {
                 $valid = false;
+            } elseif (!$this->validateRelationshipLidUnique($lids, $relation)) {
+                $this->invalidResource("$path/relationships/$field", 'Relationships type lids must be unique!');
+                $valid = false;
+            }
+        }
+
+        return $valid;
+    }
+
+    /**
+     * Validate resources lids for unique
+     *
+     * @param array $lids
+     * @param $relation
+     * @return bool
+     */
+    protected function validateRelationshipLidUnique(array &$lids, $relation): bool
+    {
+        $valid = true;
+        $data = $relation->data;
+        // convert one to many:
+        $data = is_array($data) ? $data : [$data];
+        // check all items lids:
+        foreach ($data as $item) {
+            // check lid is present:
+            if (!property_exists($item, 'lid')) {
+                continue;
+            }
+            // prepare type lids:
+            $typeLids = $lids[$item->type] ?? [];
+            $lid = $item->lid;
+            if (in_array($lid, $typeLids, true)) {
+                $valid = false;
+            } else {
+                // cache type lid:
+                $typeLids[] = $lid;
+                $lids[$item->type] = $typeLids;
             }
         }
 
