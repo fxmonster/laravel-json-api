@@ -17,6 +17,8 @@
 
 namespace CloudCreativity\LaravelJsonApi\Http\Requests;
 
+use Neomerx\JsonApi\Document\Error;
+use CloudCreativity\LaravelJsonApi\Exceptions\ValidationException;
 use CloudCreativity\LaravelJsonApi\Contracts\Validation\ValidatorFactoryInterface;
 
 /**
@@ -97,13 +99,56 @@ class CreateResource extends ValidatedRequest
     protected function validateDocumentIncluded($document): void
     {
         if (property_exists($document, 'included')) {
+            $lids = [];
             foreach ($document->included as $item) {
+                $this->validateDocumentIncludedTypeAndLid($item);
+                $this->validateDocumentIncludedLids($lids, $item);
                 $includedValidators = $this->getValidators($item->type);
                 if ($includedValidators) {
                     $this->passes($includedValidators->create($this->getIncludedDocument($item)));
                 }
             }
         }
+    }
+
+    /**
+     * @param object $item
+     */
+    protected function validateDocumentIncludedTypeAndLid(object $item): void
+    {
+        if (!property_exists($item, 'type') || !(property_exists($item, 'lid'))) {
+            throw new ValidationException(
+                new Error(
+                    null,
+                    null,
+                    null,
+                    null,
+                    'Lid and type are required for included resource'
+                )
+            );
+        }
+    }
+
+    /**
+     * @param array $lids
+     * @param object $item
+     */
+    protected function validateDocumentIncludedLids(array &$lids, object $item): void
+    {
+        $typeLids = $lids[$item->type] ?? [];
+        if (in_array($item->lid, $typeLids, true)) {
+            throw new ValidationException(
+                new Error(
+                    null,
+                    null,
+                    null,
+                    null,
+                    'Included resources lid with same type must be unique'
+                )
+            );
+        }
+        $typeLids[] = $item->lid;
+        $lids[$item->type] = $typeLids;
     }
 
     /**
